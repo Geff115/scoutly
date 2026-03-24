@@ -322,8 +322,6 @@ Payments are processed by Lemon Squeezy. On each successful payment, their webho
 
 Every user gets a free preview of the top 5 leads (name + address only, no contact info) before being asked to pay. This removes friction and lets the data sell itself.
 
----
-
 ## Scraper pipeline
 
 The scraper runs as a background job triggered by the Redis queue. It has four stages:
@@ -516,7 +514,7 @@ Scoutly is a solo project for now. If you find a bug or have a suggestion, open 
 
 ## License
 
-MIT — free to use, modify, and distribute. Attribution appreciated but not required.
+This project is licensed under the terms in the [LICENSE](LICENSE) file.
 
 ---
 

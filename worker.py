@@ -27,7 +27,7 @@ def main():
 
     try:
         # TODO: Phase 4 — call poll_for_jobs() from queue.consumer
-        # from queue.consumer import poll_for_jobs
+        # from jobs.consumer import poll_for_jobs
         # poll_for_jobs()
         logger.warning(
             "Worker is scaffolded but not yet wired up. "

@@ -36,18 +36,42 @@ _EMAIL_RE = re.compile(
 
 # Common false-positive email patterns from scraping
 _EMAIL_BLACKLIST_PATTERNS = [
-    r".*\.(png|jpg|jpeg|gif|svg|css|js)$",
-    r"^(noreply|no-reply|donotreply|mailer-daemon)@",
+    # File extensions that look like emails in HTML
+    r".*\.(png|jpg|jpeg|gif|svg|css|js|webp|ico|woff|woff2|ttf|eot)$",
+    # System / no-reply addresses
+    r"^(noreply|no-reply|donotreply|mailer-daemon|postmaster|hostmaster|webmaster|admin)@",
+    # Known placeholder / demo domains (from site templates, themes, builders)
     r".*@(example\.com|test\.com|sentry\.io|wixpress\.com)$",
+    r".*@(yourdomain\.com|yourwebsite\.com|yourcompany\.com|domain\.com|company\.com)$",
+    r".*@(yoursite\.com|mysite\.com|mywebsite\.com|website\.com|email\.com)$",
+    # Common WordPress/theme demo emails
+    r".*@(ekko\.com|developer\.com|theme\.com|flavor\.developer)$",
+    # Catch-all for very short or suspicious local parts (1-2 chars before @)
+    r"^.{1,2}@",
 ]
 _EMAIL_BLACKLIST_RE = [re.compile(p, re.IGNORECASE) for p in _EMAIL_BLACKLIST_PATTERNS]
+
+# Known placeholder emails that slip through regex patterns
+_EMAIL_BLACKLIST_EXACT = {
+    "name@domain.com",
+    "email@domain.com",
+    "info@yourdomain.com",
+    "your@email.com",
+    "youremail@example.com",
+    "a.miller@ekko.com",
+    "info@dentalcare.com",       # Generic template email
+    "support@dentalcare.com",    # Generic template email
+}
 
 
 def is_valid_email(email: str) -> bool:
     """Validate an email address format and reject known false positives."""
     if not _EMAIL_RE.match(email):
         return False
-    return not any(pat.match(email) for pat in _EMAIL_BLACKLIST_RE)
+    lower = email.lower().strip()
+    if lower in _EMAIL_BLACKLIST_EXACT:
+        return False
+    return not any(pat.match(lower) for pat in _EMAIL_BLACKLIST_RE)
 
 
 # ---------------------------------------------------------------------------

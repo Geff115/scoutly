@@ -1,3 +1,3 @@
 """Scoutly email — Transactional email delivery via Resend."""
 
-from email.sender import send_report_email
+from mailer.sender import send_report_email

@@ -22,17 +22,24 @@ logger = logging.getLogger("scoutly.worker")
 
 def main():
     """Start the worker loop."""
-    logger.info("🔍 Scoutly worker starting…")
-    logger.info("Waiting for jobs on Redis queue 'scoutly:jobs'")
+    logger.info("=" * 50)
+    logger.info("SCOUTLY WORKER")
+    logger.info("=" * 50)
 
+    # Test Redis connection before entering the loop
     try:
-        # TODO: Phase 4 — call poll_for_jobs() from queue.consumer
-        # from jobs.consumer import poll_for_jobs
-        # poll_for_jobs()
-        logger.warning(
-            "Worker is scaffolded but not yet wired up. "
-            "Implement Phase 4 (Redis job queue) to activate."
-        )
+        from utils.redis_client import get_redis
+        r = get_redis()
+        logger.info(f"Redis connected. Pending jobs: {r.llen('scoutly:jobs')}")
+    except Exception as e:
+        logger.error(f"Cannot connect to Redis: {e}")
+        logger.error("Check UPSTASH_REDIS_URL in your .env file")
+        sys.exit(1)
+
+    # Start the blocking job loop
+    try:
+        from jobs.consumer import poll_for_jobs
+        poll_for_jobs()
     except KeyboardInterrupt:
         logger.info("Worker stopped by user.")
     except Exception as e:

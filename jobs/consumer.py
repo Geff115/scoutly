@@ -199,15 +199,21 @@ def poll_for_jobs(poll_interval: int = 2) -> None:
 
     while True:
         try:
-            # BRPOP blocks until a job is available (timeout = poll_interval)
-            result = r.brpop(REDIS_JOBS_KEY, timeout=poll_interval)
+            # Use RPOP instead of BRPOP — more compatible with Upstash serverless Redis
+            r = get_redis_client()
+            raw_payload = r.rpop(REDIS_JOBS_KEY)
+
+            if raw_payload is None:
+                time.sleep(poll_interval)
+                continue
+
+            result = raw_payload
+            payload = json.loads(result)
 
             if result is None:
                 # Timeout — no job available, loop again
                 continue
 
-            _, raw_payload = result
-            payload = json.loads(raw_payload)
             job_id = payload.get("job_id", "unknown")
 
             logger.info(f"Picked up job: {job_id}")

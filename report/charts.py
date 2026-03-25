@@ -1,219 +1,194 @@
 """
-Scoutly — Chart generators.
+Scoutly — Chart generators (v2).
 
-Creates Matplotlib figures for the PDF report:
+Creates polished Matplotlib figures for the PDF report:
     - Score distribution histogram
     - Rating vs. score scatter plot
-    - Data quality bar chart (% with email, phone, etc.)
+    - Data quality bar chart
 
-All charts use a consistent Scoutly colour palette and are saved as PNGs
-for embedding into the ReportLab PDF.
+All charts use the Scoutly brand palette with clean, modern styling.
 """
 
 import matplotlib
-matplotlib.use("Agg")  # Non-interactive backend for server use
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
+import matplotlib.patheffects as pe
 import numpy as np
 import pandas as pd
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
-# Scoutly colour palette
+# Brand palette
 # ---------------------------------------------------------------------------
-COLORS = {
-    "primary": "#2563EB",       # Blue
-    "primary_light": "#60A5FA",
-    "secondary": "#10B981",     # Green
-    "accent": "#F59E0B",        # Amber
-    "danger": "#EF4444",        # Red
-    "dark": "#1E293B",          # Slate dark
-    "medium": "#64748B",        # Slate medium
-    "light": "#F1F5F9",         # Slate light
+BRAND = {
+    "blue_700": "#1D4ED8",
+    "blue_500": "#3B82F6",
+    "blue_200": "#BFDBFE",
+    "blue_50": "#EFF6FF",
+    "green_600": "#059669",
+    "green_500": "#10B981",
+    "green_100": "#D1FAE5",
+    "amber_500": "#F59E0B",
+    "amber_100": "#FEF3C7",
+    "red_500": "#EF4444",
+    "red_100": "#FEE2E2",
+    "slate_900": "#0F172A",
+    "slate_700": "#334155",
+    "slate_500": "#64748B",
+    "slate_300": "#CBD5E1",
+    "slate_100": "#F1F5F9",
     "white": "#FFFFFF",
 }
 
-# Consistent figure settings
-FIGSIZE_WIDE = (8, 3.5)
-FIGSIZE_SQUARE = (5, 4)
-DPI = 150
+DPI = 180
 
 
-def _apply_style(ax: plt.Axes) -> None:
-    """Apply consistent Scoutly styling to an axes object."""
-    ax.set_facecolor(COLORS["white"])
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
-    ax.spines["left"].set_color(COLORS["medium"])
-    ax.spines["bottom"].set_color(COLORS["medium"])
-    ax.tick_params(colors=COLORS["dark"], labelsize=9)
+def _setup_axes(ax, fig):
+    """Apply clean minimal styling."""
+    fig.patch.set_facecolor(BRAND["white"])
+    ax.set_facecolor(BRAND["white"])
+    for spine in ["top", "right"]:
+        ax.spines[spine].set_visible(False)
+    for spine in ["left", "bottom"]:
+        ax.spines[spine].set_color(BRAND["slate_300"])
+        ax.spines[spine].set_linewidth(0.8)
+    ax.tick_params(
+        colors=BRAND["slate_700"], labelsize=8.5,
+        length=3, width=0.8, direction="out",
+    )
+    ax.grid(axis="y", color=BRAND["slate_100"], linewidth=0.6, zorder=0)
 
 
 # ---------------------------------------------------------------------------
-# Chart 1: Score distribution histogram
+# Chart 1: Score distribution
 # ---------------------------------------------------------------------------
 def create_score_distribution(df: pd.DataFrame, output_path: Path) -> Path:
-    """
-    Generate a histogram of lead scores.
-
-    Args:
-        df: Scored DataFrame with 'ml_score' column.
-        output_path: Where to save the PNG.
-
-    Returns:
-        Path to the saved chart image.
-    """
-    fig, ax = plt.subplots(figsize=FIGSIZE_WIDE, dpi=DPI)
-    fig.patch.set_facecolor(COLORS["white"])
-    _apply_style(ax)
+    fig, ax = plt.subplots(figsize=(7.5, 3.2), dpi=DPI)
+    _setup_axes(ax, fig)
 
     scores = df["ml_score"].dropna()
-
-    # Create bins: 0-20, 20-40, 40-60, 60-80, 80-100
     bins = [0, 20, 40, 60, 80, 100]
     bin_labels = ["0–20", "21–40", "41–60", "61–80", "81–100"]
 
+    # Gradient-like colours from light to dark blue
+    bin_colors = [
+        BRAND["blue_200"], BRAND["blue_200"],
+        BRAND["blue_500"], BRAND["blue_500"],
+        BRAND["blue_700"],
+    ]
+
     counts, _, bars = ax.hist(
-        scores,
-        bins=bins,
-        color=COLORS["primary"],
-        edgecolor=COLORS["white"],
-        linewidth=1.5,
-        rwidth=0.85,
+        scores, bins=bins,
+        color=BRAND["blue_500"],
+        edgecolor=BRAND["white"], linewidth=2,
+        rwidth=0.78, zorder=3,
     )
 
-    # Color the highest bin differently
+    # Apply gradient colours + highlight the max bin green
     max_idx = int(np.argmax(counts))
     for i, bar in enumerate(bars):
         if i == max_idx:
-            bar.set_facecolor(COLORS["secondary"])
+            bar.set_facecolor(BRAND["green_500"])
         else:
-            bar.set_facecolor(COLORS["primary"])
+            bar.set_facecolor(bin_colors[i])
 
-    ax.set_xlabel("Lead Score", fontsize=10, color=COLORS["dark"], fontweight="medium")
-    ax.set_ylabel("Number of Leads", fontsize=10, color=COLORS["dark"], fontweight="medium")
-    ax.set_title("Score Distribution", fontsize=13, color=COLORS["dark"], fontweight="bold", pad=12)
-
-    # Set x-tick labels to bin ranges
-    ax.set_xticks([10, 30, 50, 70, 90])
-    ax.set_xticklabels(bin_labels)
-
-    # Add count labels on top of bars
+    # Count labels above bars
     for bar, count in zip(bars, counts):
         if count > 0:
             ax.text(
                 bar.get_x() + bar.get_width() / 2,
-                bar.get_height() + 0.3,
+                bar.get_height() + 0.4,
                 str(int(count)),
-                ha="center",
-                va="bottom",
-                fontsize=9,
-                fontweight="bold",
-                color=COLORS["dark"],
+                ha="center", va="bottom",
+                fontsize=10, fontweight="bold",
+                color=BRAND["slate_900"],
             )
 
+    ax.set_xticks([10, 30, 50, 70, 90])
+    ax.set_xticklabels(bin_labels)
+    ax.set_xlabel("Lead Score", fontsize=9, color=BRAND["slate_500"], labelpad=8)
+    ax.set_ylabel("Number of Leads", fontsize=9, color=BRAND["slate_500"], labelpad=8)
     ax.yaxis.set_major_locator(mticker.MaxNLocator(integer=True))
-    plt.tight_layout()
-    fig.savefig(output_path, dpi=DPI, bbox_inches="tight", facecolor=COLORS["white"])
-    plt.close(fig)
 
+    plt.tight_layout(pad=0.8)
+    fig.savefig(output_path, dpi=DPI, bbox_inches="tight", facecolor=BRAND["white"])
+    plt.close(fig)
     return output_path
 
 
 # ---------------------------------------------------------------------------
-# Chart 2: Rating vs. Score scatter
+# Chart 2: Rating vs Score scatter
 # ---------------------------------------------------------------------------
 def create_rating_vs_score_scatter(df: pd.DataFrame, output_path: Path) -> Path:
-    """
-    Generate a scatter plot: Google rating (x) vs. ML score (y).
+    fig, ax = plt.subplots(figsize=(7.5, 3.2), dpi=DPI)
+    _setup_axes(ax, fig)
 
-    Args:
-        df: Scored DataFrame with 'rating' and 'ml_score' columns.
-        output_path: Where to save the PNG.
-
-    Returns:
-        Path to the saved chart image.
-    """
-    fig, ax = plt.subplots(figsize=FIGSIZE_WIDE, dpi=DPI)
-    fig.patch.set_facecolor(COLORS["white"])
-    _apply_style(ax)
-
-    # Filter out rows without ratings
     plot_df = df.dropna(subset=["rating", "ml_score"])
     plot_df = plot_df[plot_df["rating"] > 0]
 
     if plot_df.empty:
-        # If no rating data, show a placeholder message
         ax.text(
-            0.5, 0.5,
-            "No rating data available",
-            ha="center", va="center",
-            fontsize=12, color=COLORS["medium"],
-            transform=ax.transAxes,
+            0.5, 0.5, "No rating data available",
+            ha="center", va="center", fontsize=11,
+            color=BRAND["slate_500"], transform=ax.transAxes,
         )
     else:
-        # Size dots by review count (bigger = more reviews)
         reviews = plot_df["review_count"].fillna(0).clip(lower=1)
-        sizes = np.clip(reviews * 0.8, 15, 200)
+        sizes = np.clip(reviews * 0.6, 20, 180)
 
-        scatter = ax.scatter(
-            plot_df["rating"],
-            plot_df["ml_score"],
-            s=sizes,
-            c=COLORS["primary"],
-            alpha=0.6,
-            edgecolors=COLORS["primary_light"],
-            linewidth=0.5,
+        ax.scatter(
+            plot_df["rating"], plot_df["ml_score"],
+            s=sizes, c=BRAND["blue_500"], alpha=0.55,
+            edgecolors=BRAND["blue_700"], linewidth=0.6, zorder=3,
         )
 
-        ax.set_xlim(0, 5.5)
+        # Add a subtle trend line if enough data
+        if len(plot_df) >= 5:
+            z = np.polyfit(plot_df["rating"], plot_df["ml_score"], 1)
+            p = np.poly1d(z)
+            x_range = np.linspace(plot_df["rating"].min(), plot_df["rating"].max(), 50)
+            ax.plot(
+                x_range, p(x_range),
+                color=BRAND["amber_500"], linewidth=1.5,
+                linestyle="--", alpha=0.7, zorder=2,
+            )
+
+        ax.set_xlim(
+            max(0, plot_df["rating"].min() - 0.5),
+            min(5.5, plot_df["rating"].max() + 0.5),
+        )
         ax.set_ylim(-5, 105)
 
-    ax.set_xlabel("Google Rating", fontsize=10, color=COLORS["dark"], fontweight="medium")
-    ax.set_ylabel("Lead Score", fontsize=10, color=COLORS["dark"], fontweight="medium")
-    ax.set_title(
-        "Rating vs. Lead Score",
-        fontsize=13, color=COLORS["dark"], fontweight="bold", pad=12,
-    )
+    ax.set_xlabel("Google Rating", fontsize=9, color=BRAND["slate_500"], labelpad=8)
+    ax.set_ylabel("Lead Score", fontsize=9, color=BRAND["slate_500"], labelpad=8)
 
-    plt.tight_layout()
-    fig.savefig(output_path, dpi=DPI, bbox_inches="tight", facecolor=COLORS["white"])
+    plt.tight_layout(pad=0.8)
+    fig.savefig(output_path, dpi=DPI, bbox_inches="tight", facecolor=BRAND["white"])
     plt.close(fig)
-
     return output_path
 
 
 # ---------------------------------------------------------------------------
-# Chart 3: Data quality bar chart
+# Chart 3: Data quality bar
 # ---------------------------------------------------------------------------
 def create_data_quality_bar(df: pd.DataFrame, output_path: Path) -> Path:
-    """
-    Generate a horizontal bar chart showing % of leads with each field.
-
-    Args:
-        df: Scored DataFrame.
-        output_path: Where to save the PNG.
-
-    Returns:
-        Path to the saved chart image.
-    """
-    fig, ax = plt.subplots(figsize=FIGSIZE_WIDE, dpi=DPI)
-    fig.patch.set_facecolor(COLORS["white"])
-    _apply_style(ax)
+    fig, ax = plt.subplots(figsize=(7.5, 2.6), dpi=DPI)
+    _setup_axes(ax, fig)
+    ax.grid(False)
 
     total = len(df)
     if total == 0:
         ax.text(
             0.5, 0.5, "No data available",
-            ha="center", va="center", fontsize=12, color=COLORS["medium"],
-            transform=ax.transAxes,
+            ha="center", va="center", fontsize=11,
+            color=BRAND["slate_500"], transform=ax.transAxes,
         )
         plt.tight_layout()
-        fig.savefig(output_path, dpi=DPI, bbox_inches="tight", facecolor=COLORS["white"])
+        fig.savefig(output_path, dpi=DPI, bbox_inches="tight", facecolor=BRAND["white"])
         plt.close(fig)
         return output_path
 
-    # Calculate percentages
     fields = {
         "Email": (df["email"].astype(str).str.len() > 0).sum() / total * 100,
         "Phone": (df["phone"].astype(str).str.len() > 0).sum() / total * 100,
@@ -225,41 +200,39 @@ def create_data_quality_bar(df: pd.DataFrame, output_path: Path) -> Path:
     labels = list(fields.keys())
     values = list(fields.values())
 
-    # Assign colours based on threshold
     bar_colors = []
     for v in values:
         if v >= 80:
-            bar_colors.append(COLORS["secondary"])
+            bar_colors.append(BRAND["green_500"])
         elif v >= 50:
-            bar_colors.append(COLORS["accent"])
+            bar_colors.append(BRAND["amber_500"])
         else:
-            bar_colors.append(COLORS["danger"])
+            bar_colors.append(BRAND["red_500"])
 
     y_pos = np.arange(len(labels))
-    bars = ax.barh(y_pos, values, color=bar_colors, height=0.55, edgecolor=COLORS["white"])
+
+    # Background track bars (full width)
+    ax.barh(y_pos, [100] * len(labels), color=BRAND["slate_100"], height=0.5, zorder=1)
+    # Actual value bars
+    bars = ax.barh(y_pos, values, color=bar_colors, height=0.5, zorder=2)
 
     ax.set_yticks(y_pos)
-    ax.set_yticklabels(labels, fontsize=10, color=COLORS["dark"])
-    ax.set_xlim(0, 110)
-    ax.set_xlabel("% of Leads", fontsize=10, color=COLORS["dark"], fontweight="medium")
-    ax.set_title(
-        "Data Quality Overview",
-        fontsize=13, color=COLORS["dark"], fontweight="bold", pad=12,
-    )
+    ax.set_yticklabels(labels, fontsize=9.5, color=BRAND["slate_700"], fontweight="medium")
+    ax.set_xlim(0, 115)
+    ax.spines["left"].set_visible(False)
+    ax.spines["bottom"].set_visible(False)
+    ax.tick_params(axis="x", which="both", bottom=False, labelbottom=False)
 
-    # Add percentage labels at the end of each bar
     for bar, val in zip(bars, values):
         ax.text(
-            bar.get_width() + 2,
-            bar.get_y() + bar.get_height() / 2,
+            bar.get_width() + 2, bar.get_y() + bar.get_height() / 2,
             f"{val:.0f}%",
             ha="left", va="center",
-            fontsize=10, fontweight="bold", color=COLORS["dark"],
+            fontsize=10, fontweight="bold", color=BRAND["slate_900"],
         )
 
-    ax.invert_yaxis()  # Highest quality field on top
-    plt.tight_layout()
-    fig.savefig(output_path, dpi=DPI, bbox_inches="tight", facecolor=COLORS["white"])
+    ax.invert_yaxis()
+    plt.tight_layout(pad=0.6)
+    fig.savefig(output_path, dpi=DPI, bbox_inches="tight", facecolor=BRAND["white"])
     plt.close(fig)
-
     return output_path

@@ -2,22 +2,19 @@
 Scoutly — Streamlit app entry point.
 
 Fully wired to the Redis job queue. Handles:
-    1. Input form (niche, city, country, lead count, filters, email)
-    2. Job submission → Redis queue via producer
-    3. Live progress polling every 3 seconds
-    4. Free preview (top 5 leads, name + address only)
-    5. Payment gate (Lemon Squeezy — Phase 5)
-    6. Download buttons for CSV + PDF after payment
+    1. Input form → enqueue job to Redis
+    2. Live status polling with auto-refresh
+    3. Free preview (top 5 leads, name + address only)
+    4. Payment gate (Lemon Squeezy — Phase 5)
+    5. CSV + PDF download after payment
 """
 
-import json
+import streamlit as st
 import time
 from pathlib import Path
 
-import streamlit as st
-import pandas as pd
-
 from utils.config import PRICING, JobStatus
+from jobs.producer import enqueue_job, get_job_status, get_job_result, get_job_preview
 
 
 # ---------------------------------------------------------------------------
@@ -41,12 +38,14 @@ st.markdown("---")
 # ---------------------------------------------------------------------------
 # Session state defaults
 # ---------------------------------------------------------------------------
-if "job_id" not in st.session_state:
-    st.session_state.job_id = None
-if "job_status" not in st.session_state:
-    st.session_state.job_status = None
-if "lead_count" not in st.session_state:
-    st.session_state.lead_count = 50
+defaults = {
+    "job_id": None,
+    "job_status": None,
+    "lead_count": 50,
+}
+for key, val in defaults.items():
+    if key not in st.session_state:
+        st.session_state[key] = val
 
 
 # ---------------------------------------------------------------------------
@@ -100,8 +99,6 @@ with st.form("search_form"):
             st.error("Please fill in the business type, city, and country.")
         else:
             try:
-                from jobs.producer import enqueue_job
-
                 job_id = enqueue_job(
                     niche=niche,
                     city=city,
@@ -113,18 +110,18 @@ with st.form("search_form"):
                     require_social=require_social,
                     user_email=user_email if user_email else None,
                 )
-
                 st.session_state.job_id = job_id
                 st.session_state.job_status = JobStatus.QUEUED
                 st.session_state.lead_count = lead_count
                 st.rerun()
-
+            except ConnectionError as e:
+                st.error(f"Could not connect to the job queue: {e}")
             except Exception as e:
-                st.error(f"Failed to submit job: {e}")
+                st.error(f"Something went wrong: {e}")
 
 
 # ---------------------------------------------------------------------------
-# Job status polling
+# Job status polling (auto-refreshes while in progress)
 # ---------------------------------------------------------------------------
 if st.session_state.job_id and st.session_state.job_status not in (
     JobStatus.DONE,
@@ -135,50 +132,42 @@ if st.session_state.job_id and st.session_state.job_status not in (
     st.markdown("---")
     st.subheader("⏳ Preparing your report…")
 
+    # Fetch real status from Redis
+    live_status = get_job_status(st.session_state.job_id)
+    if live_status:
+        st.session_state.job_status = live_status
+
     status_labels = {
         JobStatus.QUEUED: ("Waiting in queue…", 0.05),
         JobStatus.SCRAPING: ("Scraping Google Maps…", 0.25),
         JobStatus.ENRICHING: ("Hunting for email addresses…", 0.50),
-        JobStatus.SCORING: ("Scoring and cleaning leads…", 0.70),
-        JobStatus.BUILDING_REPORT: ("Building your PDF report…", 0.90),
+        JobStatus.SCORING: ("Scoring leads…", 0.70),
+        JobStatus.BUILDING_REPORT: ("Building your report…", 0.90),
     }
 
     current = st.session_state.job_status
     label, progress = status_labels.get(current, ("Working…", 0.5))
 
     st.progress(progress, text=label)
-
     st.caption(f"Job ID: `{st.session_state.job_id}`")
 
-    # Poll for status update
+    # Auto-refresh every 3 seconds while job is in progress
     time.sleep(3)
-    try:
-        from jobs.producer import get_job_status
-        new_status = get_job_status(st.session_state.job_id)
-        if new_status and new_status != st.session_state.job_status:
-            st.session_state.job_status = new_status
-        st.rerun()
-    except Exception:
-        st.rerun()
+    st.rerun()
 
 
 # ---------------------------------------------------------------------------
-# Failed job
+# Failed state
 # ---------------------------------------------------------------------------
 if st.session_state.job_status == JobStatus.FAILED:
     st.markdown("---")
-    st.error("❌ Something went wrong with your scrape job.")
+    st.error(
+        "❌ Something went wrong while processing your request. "
+        "Please try again or contact support."
+    )
+    st.caption(f"Job ID: `{st.session_state.job_id}`")
 
-    try:
-        from utils.redis_client import get_redis
-        r = get_redis()
-        error_msg = r.get(f"scoutly:error:{st.session_state.job_id}")
-        if error_msg:
-            st.caption(f"Error: {error_msg}")
-    except Exception:
-        pass
-
-    if st.button("🔄 Try again", use_container_width=True):
+    if st.button("🔄 Start a new search", use_container_width=True):
         st.session_state.job_id = None
         st.session_state.job_status = None
         st.rerun()
@@ -191,32 +180,30 @@ if st.session_state.job_status == JobStatus.DONE:
     st.markdown("---")
     st.subheader("✅ Your leads are ready!")
 
-    # Show free preview
-    try:
-        from jobs.producer import get_job_preview, get_job_result
+    # Fetch result metadata
+    result = get_job_result(st.session_state.job_id)
+    if result:
+        mcol1, mcol2, mcol3 = st.columns(3)
+        with mcol1:
+            st.metric("Total Leads", result.get("total_leads", "—"))
+        with mcol2:
+            st.metric("Avg Score", result.get("avg_score", "—"))
+        with mcol3:
+            st.metric("Query", result.get("query", "—")[:30])
 
-        preview_json = get_job_preview(st.session_state.job_id)
-        result = get_job_result(st.session_state.job_id)
+    # Free preview
+    st.markdown("### Free preview — top 5 leads")
+    st.caption("Name and address only. Pay to unlock full contact details, scores, and PDF report.")
 
-        if result:
-            total = result.get("total_leads", "?")
-            avg_score = result.get("avg_score", "?")
-            pct_email = result.get("pct_with_email", "?")
+    preview = get_job_preview(st.session_state.job_id)
+    if preview:
+        for i, lead in enumerate(preview, 1):
             st.markdown(
-                f"**{total} leads** found · Average score: **{avg_score}** · "
-                f"**{pct_email}%** have email addresses"
+                f"**{i}. {lead.get('name', 'Unknown')}**  \n"
+                f"📍 {lead.get('address', 'No address')}"
             )
-
-        if preview_json:
-            st.markdown("**Free preview — top 5 leads (name + address only):**")
-            preview = json.loads(preview_json)
-            preview_df = pd.DataFrame(preview)
-            st.dataframe(preview_df, use_container_width=True, hide_index=True)
-        else:
-            st.info("Preview data not available.")
-
-    except Exception as e:
-        st.warning(f"Could not load preview: {e}")
+    else:
+        st.info("Preview loading…")
 
     st.markdown("---")
 
@@ -244,65 +231,45 @@ if st.session_state.job_status == JobStatus.PAID:
     st.subheader("🎉 Report unlocked!")
     st.success("Thank you for your purchase. Your files are ready.")
 
-    try:
-        from jobs.producer import get_job_result
+    result = get_job_result(st.session_state.job_id)
 
-        result = get_job_result(st.session_state.job_id)
+    dl_col1, dl_col2 = st.columns(2)
 
-        if result:
-            csv_path = Path(result.get("csv_path", ""))
-            pdf_path = Path(result.get("pdf_path", ""))
+    if result:
+        csv_path = Path(result.get("csv_path", ""))
+        pdf_path = Path(result.get("pdf_path", ""))
 
-            dl_col1, dl_col2 = st.columns(2)
+        with dl_col1:
+            if csv_path.exists():
+                with open(csv_path, "rb") as f:
+                    st.download_button(
+                        "📥 Download CSV",
+                        data=f.read(),
+                        file_name=f"scoutly_leads_{st.session_state.job_id}.csv",
+                        mime="text/csv",
+                        use_container_width=True,
+                    )
+            else:
+                st.warning("CSV file not found")
 
-            with dl_col1:
-                if csv_path.exists():
-                    with open(csv_path, "rb") as f:
-                        st.download_button(
-                            "📥 Download CSV",
-                            data=f.read(),
-                            file_name=csv_path.name,
-                            mime="text/csv",
-                            use_container_width=True,
-                        )
-                else:
-                    st.warning("CSV file not found.")
+        with dl_col2:
+            if pdf_path.exists():
+                with open(pdf_path, "rb") as f:
+                    st.download_button(
+                        "📥 Download PDF Report",
+                        data=f.read(),
+                        file_name=f"scoutly_report_{st.session_state.job_id}.pdf",
+                        mime="application/pdf",
+                        use_container_width=True,
+                    )
+            else:
+                st.warning("PDF file not found")
+    else:
+        st.warning("Could not load result metadata.")
 
-            with dl_col2:
-                if pdf_path.exists():
-                    with open(pdf_path, "rb") as f:
-                        st.download_button(
-                            "📥 Download PDF Report",
-                            data=f.read(),
-                            file_name=pdf_path.name,
-                            mime="application/pdf",
-                            use_container_width=True,
-                        )
-                else:
-                    st.warning("PDF file not found.")
-
-            # Show summary stats
-            total = result.get("total_leads", "?")
-            avg_score = result.get("avg_score", "?")
-            pct_email = result.get("pct_with_email", "?")
-            pct_phone = result.get("pct_with_phone", "?")
-
-            st.markdown("---")
-            st.markdown("**Report summary:**")
-            stat_cols = st.columns(4)
-            stat_cols[0].metric("Total Leads", total)
-            stat_cols[1].metric("Avg Score", avg_score)
-            stat_cols[2].metric("Have Email", f"{pct_email}%")
-            stat_cols[3].metric("Have Phone", f"{pct_phone}%")
-
-        else:
-            st.error("Could not retrieve job results.")
-
-    except Exception as e:
-        st.error(f"Error loading results: {e}")
-
-    # Start new search
     st.markdown("---")
+
+    # Option to start a new search
     if st.button("🔍 Start a new search", use_container_width=True):
         st.session_state.job_id = None
         st.session_state.job_status = None

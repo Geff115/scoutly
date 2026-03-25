@@ -26,17 +26,24 @@ def main():
     logger.info("SCOUTLY WORKER")
     logger.info("=" * 50)
 
-    # Test Redis connection before entering the loop
-    try:
-        from utils.redis_client import get_redis
-        r = get_redis()
-        logger.info(f"Redis connected. Pending jobs: {r.llen('scoutly:jobs')}")
-    except Exception as e:
-        logger.error(f"Cannot connect to Redis: {e}")
-        logger.error("Check UPSTASH_REDIS_URL in your .env file")
+    # Verify Redis connection before starting
+    from utils.config import get_redis_client
+    r = get_redis_client()
+    if r is None:
+        logger.error(
+            "Redis not configured. "
+            "Set UPSTASH_REDIS_URL and UPSTASH_REDIS_TOKEN in .env"
+        )
         sys.exit(1)
 
-    # Start the blocking job loop
+    try:
+        r.ping()
+        logger.info("Redis connection OK")
+    except Exception as e:
+        logger.error(f"Cannot connect to Redis: {e}")
+        sys.exit(1)
+
+    # Start polling for jobs
     try:
         from jobs.consumer import poll_for_jobs
         poll_for_jobs()

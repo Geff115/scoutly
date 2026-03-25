@@ -20,6 +20,34 @@ load_dotenv(_env_path)
 REDIS_URL: str = os.getenv("UPSTASH_REDIS_URL", "")
 REDIS_TOKEN: str = os.getenv("UPSTASH_REDIS_TOKEN", "")
 
+# Job key prefixes
+REDIS_JOBS_KEY = "scoutly:jobs"
+REDIS_STATUS_PREFIX = "scoutly:status:"
+REDIS_RESULT_PREFIX = "scoutly:result:"
+REDIS_PREVIEW_PREFIX = "scoutly:preview:"
+REDIS_TTL = 86400  # 24 hours
+
+
+def get_redis_client():
+    """
+    Create and return a Redis client connected to Upstash.
+
+    Uses the UPSTASH_REDIS_URL which includes the password.
+    Returns None if Redis is not configured.
+    """
+    import redis as _redis
+
+    if not REDIS_URL:
+        return None
+
+    return _redis.from_url(
+        REDIS_URL,
+        password=REDIS_TOKEN,
+        decode_responses=True,
+        socket_timeout=10,
+        socket_connect_timeout=10,
+    )
+
 # ---------------------------------------------------------------------------
 # Resend
 # ---------------------------------------------------------------------------
